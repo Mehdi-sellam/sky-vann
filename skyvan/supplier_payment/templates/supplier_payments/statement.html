@@ -1,0 +1,28 @@
+{% extends "supplier_payments/_base_layout.html" %}
+
+{% block title %}Fournisseur Statement - {{ supplier.name }}{% endblock %}
+
+{% block content %}
+  {# Running header source #}
+  {% include "supplier_payments/partials/_supplier_info.html" %}
+
+  {% include "supplier_payments/partials/_period_info.html" %}
+
+  <table class="statement-table">
+    {% include "supplier_payments/partials/_statement_table_head.html" %}
+    <tbody>
+
+
+      {# Transactions loop #}
+      {% for tx in transactions %}
+        {% include "supplier_payments/partials/_transaction_row.html" %}
+        {% include "supplier_payments/partials/_transaction_products.html" %}
+      {% endfor %}
+
+
+    </tbody>
+  </table>
+  {% include "supplier_payments/partials/_summary_block.html" %}
+  {% include "supplier_payments/partials/_footer_note.html" %}
+
+{% endblock %}

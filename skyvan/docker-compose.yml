@@ -1,0 +1,84 @@
+version: '3'
+
+services:
+  
+  # Django web application
+  # Django web application
+  web:
+    build:
+      context: . # Set the correct path to your Django project directory
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app  
+      - ./media:/app/media 
+    depends_on:
+      - db
+    networks:
+      - sky_van_network
+    environment:
+      - DEBUG=True # Set your Django environment variables here
+      - DATABASE_URL=mysql://root:rootpassword@db/skyvan
+    restart: unless-stopped
+
+
+
+  # proxy-manager:
+  #   image: docker.io/jc21/nginx-proxy-manager:latest
+  #   container_name: proxy-manager
+  #   restart: unless-stopped
+  #   ports:
+  #     - "80:80"    # HTTP
+  #     - "81:81"    # Admin UI (http://localhost:81)
+  #     - "443:443"  # HTTPS
+  #   networks:
+  #     - sky_van_network
+  #   volumes:
+  #     - nginx-data:/data
+  #     - nginx-ssl:/etc/letsencrypt
+
+  # MySQL database
+  db:
+    image: mysql:8
+    ports:
+      - "3307:3306"  # Map external port 3307 to internal port 3306
+    networks:
+      - sky_van_network
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpassword
+      - MYSQL_DATABASE=skyvan
+      - MYSQL_USER=saad
+      - MYSQL_PASSWORD=saad
+      - CHARACTER_SET_SERVER=utf8mb4
+      - COLLATION_SERVER=utf8mb4_unicode_ci
+    volumes:
+      - skyvan-db:/var/lib/mysql 
+    restart: unless-stopped
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    ports:
+      - "8080:80" # Access phpMyAdmin at http://localhost:8080
+    networks:
+      - sky_van_network
+    environment:
+      - PMA_HOST=db  # Connect to the MySQL container named 'db'
+      - PMA_PORT=3306  # MySQL default port
+      - MYSQL_ROOT_PASSWORD=rootpassword  # Match this with the MySQL container password
+    depends_on:
+      - db
+    restart: unless-stopped
+
+
+
+networks:
+  sky_van_network:
+    driver: bridge
+
+volumes:
+  skyvan-db:
+    driver: local
+  # nginx-data:
+  #   driver: local
+  # nginx-ssl:
+  #   driver: local

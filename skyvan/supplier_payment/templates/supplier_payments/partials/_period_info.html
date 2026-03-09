@@ -1,0 +1,6 @@
+{% load i18n %}
+<div class="period-info">
+  {% language "fr" %}
+    Période de relevé : {{ period_start|date:"d F Y" }} - {{ period_end|date:"d F Y" }}
+  {% endlanguage %}
+</div>

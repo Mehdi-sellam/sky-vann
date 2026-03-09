@@ -1,0 +1,28 @@
+{% extends "customer_payments/_base_layout.html" %}
+
+{% block title %}Client Statement - {{ customer.name }}{% endblock %}
+
+{% block content %}
+  {# Running header source #}
+  {% include "customer_payments/partials/_customer_info.html" %}
+
+  {% include "customer_payments/partials/_period_info.html" %}
+
+  <table class="statement-table">
+    {% include "customer_payments/partials/_statement_table_head.html" %}
+    <tbody>
+
+
+      {# Transactions loop #}
+      {% for tx in transactions %}
+        {% include "customer_payments/partials/_transaction_row.html" %}
+        {% include "customer_payments/partials/_transaction_products.html" %}
+      {% endfor %}
+
+
+    </tbody>
+  </table>
+  {% include "customer_payments/partials/_summary_block.html" %}
+  {% include "customer_payments/partials/_footer_note.html" %}
+
+{% endblock %}

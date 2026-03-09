@@ -1,0 +1,47 @@
+{% if tx.products %}
+<tr class="txn-lines-wrap">
+  <td colspan="8">
+    <table class="txn-lines">
+      <thead>
+        <tr>
+          <th width="48%">Produit</th>
+          <th width="10%" class="text-right">Qté</th>
+          <th width="14%" class="text-right">Prix U. {{ currency|default:"(DA)" }}</th>
+          <th width="14%" class="text-right">Total {{ currency|default:"(DA)" }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for line in tx.products %}
+        <tr>
+          <td>{{ line.name }}</td>
+          <td class="text-right">{{ line.qty }}</td>
+          <td class="text-right">{{ line.unit_price|floatformat:2 }}</td>
+          <td class="text-right">{{ line.total|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+
+        {# Bloc totaux #}
+
+        {% if tx.total_discount and tx.total_discount|floatformat:2 != "0.00" %}
+          <tr>
+            <td colspan="2"></td>
+            <td class="text-right"><strong>Sous-total {{ currency|default:"(DA)" }}</strong></td>
+            <td class="text-right">{{ tx.subtotal|default:0|floatformat:2 }}</td>
+          </tr>
+          <tr>
+            <td colspan="2"></td>
+            <td class="text-right"><strong>Remise {{ currency|default:"(DA)" }}</strong></td>
+            <td class="text-right">-{{ tx.total_discount|floatformat:2 }}</td>
+          </tr>
+        {% endif %}
+        <tr>
+          <td colspan="2"></td>
+          <td class="text-right"><strong>Total à payer {{ currency|default:"(DA)" }}</strong></td>
+          <td class="text-right"><strong>{{ tx.grand_total|default:tx.debit|floatformat:2 }}</strong></td>
+        </tr>
+      
+      </tbody>
+    </table>
+  </td>
+</tr>
+{% endif %}

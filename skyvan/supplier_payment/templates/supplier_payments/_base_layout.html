@@ -1,0 +1,18 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>{% block title %}Fournisseur Statement{% endblock %}</title>
+  <style>
+    {% include "supplier_payments/_styles.css.html" %}
+  </style>
+</head>
+<body>
+ 
+    {% include "supplier_payments/partials/_company_header.html" %}
+  <div class="content">
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

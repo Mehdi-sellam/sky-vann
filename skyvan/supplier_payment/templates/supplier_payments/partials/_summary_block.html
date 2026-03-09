@@ -1,0 +1,21 @@
+<div class="summary">
+  <table class="summary-table">
+    <tr>
+      <td>Solde d'ouverture {{ currency|default:"DA" }}:</td>
+      <td class="balance">{{ opening_balance|floatformat:2 }}</td>
+    </tr>
+    <tr>
+      <td>Total des débits {{ currency|default:"DA" }}:</td>
+      <td class="amount-debit">{{ total_debits|floatformat:2 }}</td>
+    </tr>
+    <tr>
+      <td>Total des crédits {{ currency|default:"DA" }}:</td>
+      <td class="amount-credit">{{ total_credits|floatformat:2 }}</td>
+    </tr>
+    <tr class="total-row">
+      <td>Solde {{ currency|default:"DA" }}:</td>
+      <td class="balance">{{ closing_balance|floatformat:2 }}</td>
+    </tr>
+  </table>
+  <div style="clear: both"></div>
+</div>

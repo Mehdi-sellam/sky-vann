@@ -1,0 +1,14 @@
+
+<tr class="keep-with-next">
+  <td>{{ tx.date|date:"d/m/Y" }}</td>
+  <td>{{ tx.reference }}</td>
+  <td>{{ tx.description }}</td>
+  <td>{{ tx.method|default:"-" }}</td>
+  <td class="amount-debit">
+    {% if tx.debit %}{{ tx.debit|floatformat:2 }}{% else %}-{% endif %}
+  </td>
+  <td class="amount-credit">
+    {% if tx.credit %}{{ tx.credit|floatformat:2 }}{% else %}-{% endif %}
+  </td>
+  <td class="balance">{{ tx.balance|floatformat:2 }}</td>
+</tr>
