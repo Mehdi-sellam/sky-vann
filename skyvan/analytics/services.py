@@ -22,13 +22,13 @@ from expense.models import Expense
 from decimal import Decimal, ROUND_HALF_UP
 from customer.models import Customer
 from account.models import User
-from return_sales.models import ReturnSaleLine
 from supplier.models import Supplier
 from purchases.models import PurchaseLine, PurchaseOrder
 from warehouse.models import CentralInventory
 from product.models import Product
 from transfer.models import TransferLine
 from van.models import VanAssignment
+from return_sales.models import ReturnSaleLine
 
 
 def round_decimal(value):
@@ -196,49 +196,53 @@ def get_van_uuid_from_query(user_uuid, request):
     start_dt, end_dt = get_datetime_range_from_query(request)
 
     if not raw_van_uuids:
-        raise ValidationError({"van_uuid": "At least one van_uuid must be provided."})
+        raise ValidationError({
+            "code": "missing_value",
+            "message": "At least one van_uuid must be provided in query parameters.",
+            "field": "van_uuid"
+        })
     
     input_uuids = {v.strip() for v in raw_van_uuids.split(',') if v.strip()}
     
-    # Filter assignments that overlap with the requested date range
-    assignments = VanAssignment.objects.filter(
+    if not input_uuids:
+        raise ValidationError({
+            "code": "invalid_format",
+            "message": "The van_uuids format cannot be empty.",
+            "field": "van_uuid"
+        })
+
+    valid_uuids_queryset = VanAssignment.objects.filter(
         user__uuid=user_uuid,
         van__uuid__in=input_uuids,
-        start_datetime__lt=end_dt,  # Assignment started before request ended
-        end_datetime__gt=start_dt,  # Assignment ended after request started
+        start_datetime__lt=end_dt,
+        end_datetime__gt=start_dt,
         deleted=False
     )
 
-    if not assignments.exists():
-        raise PermissionDenied("No valid van assignments found for the selected period.")
+    van_uuids = list(valid_uuids_queryset.values_list('van__uuid', flat=True).distinct())
 
-# 1. Correctly extract UUIDs
-    valid_uuids = list(assignments.values_list('van__uuid', flat=True).distinct())
+    valid_uuids = {str(uuid) for uuid in van_uuids}
     
-    # 2. Correctly aggregate the bounding dates
-    bounds = assignments.aggregate(
-        actual_min=Min('start_datetime'),
-        actual_max=Max('end_datetime')
-    )
+    invalid_uuids = input_uuids - valid_uuids
 
-    # 3. Intersect the requested range with the assignment range
-    final_start = max(bounds['actual_min'], start_dt)
-    final_end = min(bounds['actual_max'], end_dt)
-    print(final_start, final_end)
+    if invalid_uuids:
+        invalid_list = sorted(list(invalid_uuids))
+        raise PermissionDenied(
+            f"No valid van assignments found for this user for the following UUIDs: {', '.join(invalid_list)}"
+        )
 
-    return valid_uuids, final_start, final_end
+    return valid_uuids, start_dt, end_dt
 
 
 def get_all_products_statistics(user_uuid, request):
-
-    van_uuids, start_dt, end_dt= get_van_uuid_from_query(user_uuid, request)
-    print(start_dt, end_dt)
+    van_uuids, start_dt, end_dt = get_van_uuid_from_query(user_uuid, request)
     decimal_zero = Value(0, output_field=DecimalField())
 
     transfer_qs = TransferLine.objects.filter(
         product=OuterRef("pk"),
         deleted=False,
         transfer__deleted=False,
+        transfer__created_by__uuid=user_uuid,
         transfer__status="accepted"
     )
 
@@ -251,19 +255,19 @@ def get_all_products_statistics(user_uuid, request):
         sale_order__van__uuid__in=van_uuids
     )
 
-#    related_sales = sale_qs.filter(
-#        sale_order__customer=OuterRef("return_sale_order__customer"),
-#        sale_order__van__uuid__in=van_uuids
-#    )
-
-    # TOTAL RETURNS (Customer -> Warehouse/Van)
-#    returns_total = ReturnSaleLine.objects.filter(
+#    return_sale_qs = ReturnSaleLine.objects.filter(
 #        product=OuterRef("pk"),
 #        deleted=False,
 #        return_sale_order__deleted=False,
 #        return_sale_order__is_received=True,
-#        return_sale_order__created_at__range=(start_dt, end_dt),
-#    ).filter(Exists(related_sales)).order_by().values("product").annotate(total=Sum("quantity")).values("total")
+#    )
+#
+#    related_sales_from_vans = SaleOrder.objects.filter(
+#        customer=OuterRef("return_sale_order__customer"),
+#        van__uuid__in=van_uuids,
+#        deleted=False,
+#        is_received=True
+#    )
 
     return (
         Product.objects.filter(deleted=False)
@@ -275,7 +279,7 @@ def get_all_products_statistics(user_uuid, request):
                 transfer_qs.filter(
                     transfer__destination_van__uuid__in=van_uuids,
                     transfer__source_warehouse__isnull=False,
-                    transfer__created_at__lt=start_dt
+                    transfer__updated_at__lt=start_dt
                 ).values("product").annotate(total=Sum("quantity")).values("total")
             ), decimal_zero),
 
@@ -283,21 +287,38 @@ def get_all_products_statistics(user_uuid, request):
                 transfer_qs.filter(
                     transfer__source_van__uuid__in=van_uuids,
                     transfer__destination_warehouse__isnull=False,
-                    transfer__created_by__uuid=user_uuid,
-                    transfer__created_at__lt=start_dt
+                    transfer__updated_at__lt=start_dt
+                ).values("product").annotate(total=Sum("quantity")).values("total")
+            ), decimal_zero),
+
+            opening_qty_van_to_van_in=Coalesce(Subquery(
+                transfer_qs.filter(
+                    transfer__destination_van__uuid__in=van_uuids,
+                    transfer__source_van__isnull=False,
+                    transfer__updated_at__lt=start_dt
+                ).values("product").annotate(total=Sum("quantity")).values("total")
+            ), decimal_zero),
+
+            opening_qty_van_to_van_out=Coalesce(Subquery(
+                transfer_qs.filter(
+                    transfer__source_van__uuid__in=van_uuids,
+                    transfer__destination_van__isnull=False,
+                    transfer__updated_at__lt=start_dt
                 ).values("product").annotate(total=Sum("quantity")).values("total")
             ), decimal_zero),
 
             opening_qty_sold=Coalesce(Subquery(
                 sale_qs.filter(
-                    sale_order__created_by__uuid=user_uuid,
                     sale_order__created_at__lt=start_dt
                 ).values("product").annotate(total=Sum("quantity")).values("total")
             ), decimal_zero),
+
+            opening_qty_returned=decimal_zero
         )
         .annotate(
             opening_quantity=ExpressionWrapper(
-                F("opening_qty_in") - (F("opening_qty_out") + F("opening_qty_sold")),
+                (F("opening_qty_in") + F("opening_qty_van_to_van_in") + F("opening_qty_returned")) - 
+                (F("opening_qty_out") + F("opening_qty_van_to_van_out") + F("opening_qty_sold")),
                 output_field=DecimalField()
             )
         )
@@ -306,7 +327,7 @@ def get_all_products_statistics(user_uuid, request):
                 transfer_qs.filter(
                     transfer__destination_van__uuid__in=van_uuids,
                     transfer__source_warehouse__isnull=False,
-                    transfer__created_at__range=(start_dt, end_dt)
+                    transfer__updated_at__range=(start_dt, end_dt)
                 ).values("product").annotate(total=Sum("quantity")).values("total")
             ), decimal_zero),
 
@@ -314,14 +335,28 @@ def get_all_products_statistics(user_uuid, request):
                 transfer_qs.filter(
                     transfer__source_van__uuid__in=van_uuids,
                     transfer__destination_warehouse__isnull=False,
-                    transfer__created_by__uuid=user_uuid,
-                    transfer__created_at__range=(start_dt, end_dt)
+                    transfer__updated_at__range=(start_dt, end_dt)
+                ).values("product").annotate(total=Sum("quantity")).values("total")
+            ), decimal_zero),
+
+            quantity_transfered_van_to_van_in=Coalesce(Subquery(
+                transfer_qs.filter(
+                    transfer__destination_van__uuid__in=van_uuids,
+                    transfer__source_van__isnull=False,
+                    transfer__updated_at__range=(start_dt, end_dt)
+                ).values("product").annotate(total=Sum("quantity")).values("total")
+            ), decimal_zero),
+
+            quantity_transfered_van_to_van_out=Coalesce(Subquery(
+                transfer_qs.filter(
+                    transfer__source_van__uuid__in=van_uuids,
+                    transfer__destination_van__isnull=False,
+                    transfer__updated_at__range=(start_dt, end_dt)
                 ).values("product").annotate(total=Sum("quantity")).values("total")
             ), decimal_zero),
 
             quantity_sold=Coalesce(Subquery(
                 sale_qs.filter(
-                    sale_order__created_by__uuid=user_uuid,
                     sale_order__created_at__range=(start_dt, end_dt)
                 ).values("product").annotate(total=Sum("quantity")).values("total")
             ), decimal_zero),
@@ -331,16 +366,22 @@ def get_all_products_statistics(user_uuid, request):
         .annotate(
             # Opening Stock + Stock In + Stock returned - Stock Out - Stock Sold
             remaining_quantity=ExpressionWrapper(
-                (F("opening_quantity") + F("quantity_transfered_warehouse_to_van") + F("quantity_returned_sale")) - 
-                (F("quantity_transfered_van_to_warehouse") + F("quantity_sold")),
+                (F("opening_quantity") + F("quantity_transfered_warehouse_to_van") + F("quantity_returned_sale") + F("quantity_transfered_van_to_van_in")) - 
+                (F("quantity_transfered_van_to_warehouse") + F("quantity_sold") + F("quantity_transfered_van_to_van_out")),
                 output_field=DecimalField()
             )
         )
         .filter(
             Q(opening_quantity__gt=0) |
+            Q(opening_quantity__lt=0) |
             Q(quantity_transfered_warehouse_to_van__gt=0) |
             Q(quantity_transfered_van_to_warehouse__gt=0) |
-            Q(quantity_sold__gt=0)
+            Q(quantity_transfered_van_to_van_in__gt=0) |
+            Q(quantity_transfered_van_to_van_out__gt=0) |
+            Q(quantity_sold__gt=0) |
+            Q(quantity_returned_sale__gt=0) |
+            Q(remaining_quantity__gt=0) |
+            Q(remaining_quantity__lt=0)
         )
         .order_by("name")
     )
@@ -348,47 +389,42 @@ def get_all_products_statistics(user_uuid, request):
 
 def get_most_sold_products(request):
     ''' 
-    get the quantity sold sum of products sold from 
+    get the quantity sold - returns sum of products sold from 
     a van and sort them by quantity sold
 
     '''
-    start_date, end_date = get_datetime_range_from_query(request)
+    decimal_zero = Value(0, output_field=DecimalField())
+
+    sales_qs = SaleLine.objects.filter(
+        product=OuterRef("pk"),
+        deleted=False,
+        sale_order__deleted=False,
+        sale_order__is_received=True
+    ).values("product").annotate(total=Sum("quantity")).values("total")
+
+    returns_qs = ReturnSaleLine.objects.filter(
+        product=OuterRef("pk"),
+        deleted=False,
+        return_sale_order__deleted=False,
+        return_sale_order__is_received=True
+    ).values("product").annotate(total=Sum("quantity")).values("total")
 
     return (
-        Product.objects.filter(
-            deleted=False,
-            sale_lines__deleted=False,
-            sale_lines__sale_order__deleted=False,
-            sale_lines__sale_order__created_at__range=(start_date, end_date)
-        )
+        Product.objects.filter(deleted=False,)
         .select_related("category")
         .prefetch_related("barcodes")
         .annotate(
-            quantity_sold=Sum("sale_lines__quantity")
+            gross_sold=Coalesce(Subquery(sales_qs), decimal_zero),
+            total_returned=Coalesce(Subquery(returns_qs), decimal_zero)
+        )
+        .annotate(
+            quantity_sold=ExpressionWrapper(
+                F("gross_sold") - F("total_returned"),
+                output_field=DecimalField()
+            )
         )
         .filter(quantity_sold__gt=0)
         .order_by("-quantity_sold", "name")
-    )
-
-
-def get_most_sold_products_top_10(request):
-    """Get top 10 most sold products - optimized with SQL LIMIT"""
-    start_date, end_date = get_datetime_range_from_query(request)
-
-    return (
-        Product.objects.filter(
-            deleted=False,
-            sale_lines__deleted=False,
-            sale_lines__sale_order__deleted=False,
-            sale_lines__sale_order__created_at__range=(start_date, end_date)
-        )
-        .select_related("category")
-        .prefetch_related("barcodes")
-        .annotate(
-            quantity_sold=Sum("sale_lines__quantity")
-        )
-        .filter(quantity_sold__gt=0)
-        .order_by("-quantity_sold", "name")[:10]
     )
 
 
@@ -429,39 +465,11 @@ def get_sorted_net_revenue_per_product():
     )
 
 
-def get_sorted_net_revenue_per_product_top_10():
-    """Get top 10 products by net revenue - optimized with SQL LIMIT"""
-    return (
-        Product.objects.filter(
-            deleted=False,
-            sale_lines__deleted=False,
-            sale_lines__sale_order__deleted=False
-        )
-        .select_related("category")
-        .prefetch_related("barcodes")
-        .annotate(
-            quantity_sold=Sum("sale_lines__quantity"),
-            net_revenue=Sum("sale_lines__total_price"),
-        )
-        .filter(quantity_sold__gt=0)
-        .annotate(
-            avg_unit_price=ExpressionWrapper(
-                F("net_revenue") / NullIf(F("quantity_sold"), Value(0)), 
-                output_field=DecimalField(
-                    max_digits=settings.DEFAULT_MAX_DIGITS,
-                    decimal_places=settings.DEFAULT_DECIMAL_PLACES,
-                )
-            )
-        )
-        .order_by("-net_revenue", "name")[:10]
-    )
-
-
 
 
 def get_sorted_products_by_profit():
     """ 
-    Calculates profit by product using the snapshot 'average_cost' on SaleLines.
+    Calculates profit by product using the snapshot 'average_cost' on SaleLines and returns.
     This is the standard accounting method for Cost of Goods Sold (COGS).
     """
     decimal_out = DecimalField(
@@ -469,6 +477,17 @@ def get_sorted_products_by_profit():
         decimal_places=settings.DEFAULT_DECIMAL_PLACES
     )
 
+    decimal_zero = Value(0, output_field=decimal_out)
+
+    sales_base = SaleLine.objects.filter(
+        product=OuterRef("pk"), deleted=False, 
+        sale_order__deleted=False, sale_order__is_received=True
+    )
+    returns_base = ReturnSaleLine.objects.filter(
+        product=OuterRef("pk"), deleted=False, 
+        return_sale_order__deleted=False, return_sale_order__is_received=True
+    )
+
     return (
         Product.objects.filter(
             deleted=False,
@@ -478,11 +497,23 @@ def get_sorted_products_by_profit():
         .select_related("category")
         .prefetch_related("barcodes")
         .annotate(
-            quantity_sold=Sum("sale_lines__quantity"),
-            net_revenue=Sum("sale_lines__total_price"),
-            # Cost of Goods Sold (COGS)
-            total_cost_value=Sum(F("sale_lines__quantity") * F("sale_lines__average_cost")),
+            # Gross totals
+            gross_qty=Coalesce(Subquery(sales_base.values("product").annotate(t=Sum("quantity")).values("t")), decimal_zero),
+            gross_rev=Coalesce(Subquery(sales_base.values("product").annotate(t=Sum("total_price")).values("t")), decimal_zero),
+            gross_cogs=Coalesce(Subquery(sales_base.values("product").annotate(t=Sum(F("quantity") * F("average_cost"))).values("t")), decimal_zero),
+
+            # returns
+            ret_qty=Coalesce(Subquery(returns_base.values("product").annotate(t=Sum("quantity")).values("t")), decimal_zero),
+            ret_rev=Coalesce(Subquery(returns_base.values("product").annotate(t=Sum("total_price")).values("t")), decimal_zero),
+            ret_cogs=Coalesce(Subquery(returns_base.values("product").annotate(t=Sum(F("quantity") * F("average_cost"))).values("t")), decimal_zero),
         )
+        .annotate(
+            quantity_sold=ExpressionWrapper(F("gross_qty") - F("ret_qty"), output_field=decimal_out),
+            net_revenue=ExpressionWrapper(F("gross_rev") - F("ret_rev"), output_field=decimal_out),
+            # Cost of Goods Sold (COGS)
+            total_cost_value=ExpressionWrapper(F("gross_cogs") - F("ret_cogs"), output_field=decimal_out),
+        )
+        .filter(Q(gross_qty__gt=0) | Q(ret_qty__gt=0))
         .annotate(
             profit=ExpressionWrapper(
                 F("net_revenue") - F("total_cost_value"), 
@@ -496,39 +527,4 @@ def get_sorted_products_by_profit():
         )
         .filter(quantity_sold__gt=0)
         .order_by("-profit", "name")
-    )
-
-
-def get_sorted_products_by_profit_top_10():
-    """Get top 10 products by profit - optimized with SQL LIMIT"""
-    decimal_out = DecimalField(
-        max_digits=settings.DEFAULT_MAX_DIGITS, 
-        decimal_places=settings.DEFAULT_DECIMAL_PLACES
-    )
-
-    return (
-        Product.objects.filter(
-            deleted=False,
-            sale_lines__deleted=False,
-            sale_lines__sale_order__deleted=False
-        )
-        .select_related("category")
-        .prefetch_related("barcodes")
-        .annotate(
-            quantity_sold=Sum("sale_lines__quantity"),
-            net_revenue=Sum("sale_lines__total_price"),
-            total_cost_value=Sum(F("sale_lines__quantity") * F("sale_lines__average_cost")),
-        )
-        .annotate(
-            profit=ExpressionWrapper(
-                F("net_revenue") - F("total_cost_value"), 
-                output_field=decimal_out
-            ),
-            avg_unit_cost_price=ExpressionWrapper(
-                F("total_cost_value") / NullIf(F("quantity_sold"), Value(0)),
-                output_field=decimal_out
-            )
-        )
-        .filter(quantity_sold__gt=0)
-        .order_by("-profit", "name")[:10]
     )
