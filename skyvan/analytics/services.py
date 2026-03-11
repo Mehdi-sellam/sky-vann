@@ -371,6 +371,27 @@ def get_most_sold_products(request):
     )
 
 
+def get_most_sold_products_top_10(request):
+    """Get top 10 most sold products - optimized with SQL LIMIT"""
+    start_date, end_date = get_datetime_range_from_query(request)
+
+    return (
+        Product.objects.filter(
+            deleted=False,
+            sale_lines__deleted=False,
+            sale_lines__sale_order__deleted=False,
+            sale_lines__sale_order__created_at__range=(start_date, end_date)
+        )
+        .select_related("category")
+        .prefetch_related("barcodes")
+        .annotate(
+            quantity_sold=Sum("sale_lines__quantity")
+        )
+        .filter(quantity_sold__gt=0)
+        .order_by("-quantity_sold", "name")[:10]
+    )
+
+
 
 def get_sorted_net_revenue_per_product():
     ''' 
@@ -405,6 +426,34 @@ def get_sorted_net_revenue_per_product():
             )
         )
         .order_by("-net_revenue", "name")
+    )
+
+
+def get_sorted_net_revenue_per_product_top_10():
+    """Get top 10 products by net revenue - optimized with SQL LIMIT"""
+    return (
+        Product.objects.filter(
+            deleted=False,
+            sale_lines__deleted=False,
+            sale_lines__sale_order__deleted=False
+        )
+        .select_related("category")
+        .prefetch_related("barcodes")
+        .annotate(
+            quantity_sold=Sum("sale_lines__quantity"),
+            net_revenue=Sum("sale_lines__total_price"),
+        )
+        .filter(quantity_sold__gt=0)
+        .annotate(
+            avg_unit_price=ExpressionWrapper(
+                F("net_revenue") / NullIf(F("quantity_sold"), Value(0)), 
+                output_field=DecimalField(
+                    max_digits=settings.DEFAULT_MAX_DIGITS,
+                    decimal_places=settings.DEFAULT_DECIMAL_PLACES,
+                )
+            )
+        )
+        .order_by("-net_revenue", "name")[:10]
     )
 
 
@@ -447,4 +496,39 @@ def get_sorted_products_by_profit():
         )
         .filter(quantity_sold__gt=0)
         .order_by("-profit", "name")
+    )
+
+
+def get_sorted_products_by_profit_top_10():
+    """Get top 10 products by profit - optimized with SQL LIMIT"""
+    decimal_out = DecimalField(
+        max_digits=settings.DEFAULT_MAX_DIGITS, 
+        decimal_places=settings.DEFAULT_DECIMAL_PLACES
+    )
+
+    return (
+        Product.objects.filter(
+            deleted=False,
+            sale_lines__deleted=False,
+            sale_lines__sale_order__deleted=False
+        )
+        .select_related("category")
+        .prefetch_related("barcodes")
+        .annotate(
+            quantity_sold=Sum("sale_lines__quantity"),
+            net_revenue=Sum("sale_lines__total_price"),
+            total_cost_value=Sum(F("sale_lines__quantity") * F("sale_lines__average_cost")),
+        )
+        .annotate(
+            profit=ExpressionWrapper(
+                F("net_revenue") - F("total_cost_value"), 
+                output_field=decimal_out
+            ),
+            avg_unit_cost_price=ExpressionWrapper(
+                F("total_cost_value") / NullIf(F("quantity_sold"), Value(0)),
+                output_field=decimal_out
+            )
+        )
+        .filter(quantity_sold__gt=0)
+        .order_by("-profit", "name")[:10]
     )

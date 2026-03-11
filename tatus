@@ -1,0 +1,281 @@
+[1mdiff --git a/skyvan/analytics/services.py b/skyvan/analytics/services.py[m
+[1mindex 8390997..7b1dc13 100644[m
+[1m--- a/skyvan/analytics/services.py[m
+[1m+++ b/skyvan/analytics/services.py[m
+[36m@@ -371,6 +371,27 @@[m [mdef get_most_sold_products(request):[m
+     )[m
+ [m
+ [m
+[32m+[m[32mdef get_most_sold_products_top_10(request):[m
+[32m+[m[32m    """Get top 10 most sold products - optimized with SQL LIMIT"""[m
+[32m+[m[32m    start_date, end_date = get_datetime_range_from_query(request)[m
+[32m+[m
+[32m+[m[32m    return ([m
+[32m+[m[32m        Product.objects.filter([m
+[32m+[m[32m            deleted=False,[m
+[32m+[m[32m            sale_lines__deleted=False,[m
+[32m+[m[32m            sale_lines__sale_order__deleted=False,[m
+[32m+[m[32m            sale_lines__sale_order__created_at__range=(start_date, end_date)[m
+[32m+[m[32m        )[m
+[32m+[m[32m        .select_related("category")[m
+[32m+[m[32m        .prefetch_related("barcodes")[m
+[32m+[m[32m        .annotate([m
+[32m+[m[32m            quantity_sold=Sum("sale_lines__quantity")[m
+[32m+[m[32m        )[m
+[32m+[m[32m        .filter(quantity_sold__gt=0)[m
+[32m+[m[32m        .order_by("-quantity_sold", "name")[:10][m
+[32m+[m[32m    )[m
+[32m+[m
+[32m+[m
+ [m
+ def get_sorted_net_revenue_per_product():[m
+     ''' [m
+[36m@@ -408,6 +429,34 @@[m [mdef get_sorted_net_revenue_per_product():[m
+     )[m
+ [m
+ [m
+[32m+[m[32mdef get_sorted_net_revenue_per_product_top_10():[m
+[32m+[m[32m    """Get top 10 products by net revenue - optimized with SQL LIMIT"""[m
+[32m+[m[32m    return ([m
+[32m+[m[32m        Product.objects.filter([m
+[32m+[m[32m            deleted=False,[m
+[32m+[m[32m            sale_lines__deleted=False,[m
+[32m+[m[32m            sale_lines__sale_order__deleted=False[m
+[32m+[m[32m        )[m
+[32m+[m[32m        .select_related("category")[m
+[32m+[m[32m        .prefetch_related("barcodes")[m
+[32m+[m[32m        .annotate([m
+[32m+[m[32m            quantity_sold=Sum("sale_lines__quantity"),[m
+[32m+[m[32m            net_revenue=Sum("sale_lines__total_price"),[m
+[32m+[m[32m        )[m
+[32m+[m[32m        .filter(quantity_sold__gt=0)[m
+[32m+[m[32m        .annotate([m
+[32m+[m[32m            avg_unit_price=ExpressionWrapper([m
+[32m+[m[32m                F("net_revenue") / NullIf(F("quantity_sold"), Value(0)),[m[41m [m
+[32m+[m[32m                output_field=DecimalField([m
+[32m+[m[32m                    max_digits=settings.DEFAULT_MAX_DIGITS,[m
+[32m+[m[32m                    decimal_places=settings.DEFAULT_DECIMAL_PLACES,[m
+[32m+[m[32m                )[m
+[32m+[m[32m            )[m
+[32m+[m[32m        )[m
+[32m+[m[32m        .order_by("-net_revenue", "name")[:10][m
+[32m+[m[32m    )[m
+[32m+[m
+[32m+[m
+ [m
+ [m
+ def get_sorted_products_by_profit():[m
+[36m@@ -447,4 +496,39 @@[m [mdef get_sorted_products_by_profit():[m
+         )[m
+         .filter(quantity_sold__gt=0)[m
+         .order_by("-profit", "name")[m
+[32m+[m[32m    )[m
+[32m+[m
+[32m+[m
+[32m+[m[32mdef get_sorted_products_by_profit_top_10():[m
+[32m+[m[32m    """Get top 10 products by profit - optimized with SQL LIMIT"""[m
+[32m+[m[32m    decimal_out = DecimalField([m
+[32m+[m[32m        max_digits=settings.DEFAULT_MAX_DIGITS,[m[41m [m
+[32m+[m[32m        decimal_places=settings.DEFAULT_DECIMAL_PLACES[m
+[32m+[m[32m    )[m
+[32m+[m
+[32m+[m[32m    return ([m
+[32m+[m[32m        Product.objects.filter([m
+[32m+[m[32m            deleted=False,[m
+[32m+[m[32m            sale_lines__deleted=False,[m
+[32m+[m[32m            sale_lines__sale_order__deleted=False[m
+[32m+[m[32m        )[m
+[32m+[m[32m        .select_related("category")[m
+[32m+[m[32m        .prefetch_related("barcodes")[m
+[32m+[m[32m        .annotate([m
+[32m+[m[32m            quantity_sold=Sum("sale_lines__quantity"),[m
+[32m+[m[32m            net_revenue=Sum("sale_lines__total_price"),[m
+[32m+[m[32m            total_cost_value=Sum(F("sale_lines__quantity") * F("sale_lines__average_cost")),[m
+[32m+[m[32m        )[m
+[32m+[m[32m        .annotate([m
+[32m+[m[32m            profit=ExpressionWrapper([m
+[32m+[m[32m                F("net_revenue") - F("total_cost_value"),[m[41m [m
+[32m+[m[32m                output_field=decimal_out[m
+[32m+[m[32m            ),[m
+[32m+[m[32m            avg_unit_cost_price=ExpressionWrapper([m
+[32m+[m[32m                F("total_cost_value") / NullIf(F("quantity_sold"), Value(0)),[m
+[32m+[m[32m                output_field=decimal_out[m
+[32m+[m[32m            )[m
+[32m+[m[32m        )[m
+[32m+[m[32m        .filter(quantity_sold__gt=0)[m
+[32m+[m[32m        .order_by("-profit", "name")[:10][m
+     )[m
+\ No newline at end of file[m
+[1mdiff --git a/skyvan/analytics/urls.py b/skyvan/analytics/urls.py[m
+[1mindex 831566d..dc79ca5 100644[m
+[1m--- a/skyvan/analytics/urls.py[m
+[1m+++ b/skyvan/analytics/urls.py[m
+[36m@@ -15,16 +15,31 @@[m [murlpatterns = [[m
+     path([m
+         'statistics/most-sold-products/',[m
+         MostSoldProducts.as_view(),[m
+[31m-        name="product-statistics",[m
+[32m+[m[32m        name="most-sold-products",[m
+[32m+[m[32m    ),[m
+[32m+[m[32m    path([m
+[32m+[m[32m        'statistics/most-sold-products/top-10/',[m
+[32m+[m[32m        MostSoldProductsTop10.as_view(),[m
+[32m+[m[32m        name="most-sold-products-top-10",[m
+     ),[m
+     path([m
+         'statistics/products-net-revenue/',[m
+         SortedNetRevenue.as_view(),[m
+[31m-        name="product-statistics",[m
+[32m+[m[32m        name="products-net-revenue",[m
+[32m+[m[32m    ),[m
+[32m+[m[32m    path([m
+[32m+[m[32m        'statistics/products-net-revenue/top-10/',[m
+[32m+[m[32m        SortedNetRevenueTop10.as_view(),[m
+[32m+[m[32m        name="products-net-revenue-top-10",[m
+     ),[m
+     path([m
+         'statistics/products-profit/',[m
+         SortedNetProfit.as_view(),[m
+[31m-        name="product-statistics",[m
+[32m+[m[32m        name="products-profit",[m
+[32m+[m[32m    ),[m
+[32m+[m[32m    path([m
+[32m+[m[32m        'statistics/products-profit/top-10/',[m
+[32m+[m[32m        SortedNetProfitTop10.as_view(),[m
+[32m+[m[32m        name="products-profit-top-10",[m
+     ),[m
+ ][m
+[1mdiff --git a/skyvan/analytics/views.py b/skyvan/analytics/views.py[m
+[1mindex d1109e9..c0fe789 100644[m
+[1m--- a/skyvan/analytics/views.py[m
+[1m+++ b/skyvan/analytics/views.py[m
+[36m@@ -1,10 +1,20 @@[m
+[32m+[m
+ from django.shortcuts import get_object_or_404[m
+ from rest_framework.views import APIView[m
+ from rest_framework.response import Response[m
+ from rest_framework.exceptions import PermissionDenied, ValidationError[m
+ from drf_spectacular.utils import extend_schema, OpenApiParameter[m
+ from drf_spectacular.types import OpenApiTypes[m
+[31m-from analytics.services import calculate_profit_statistics, get_all_products_statistics, get_sorted_net_revenue_per_product, get_most_sold_products, get_sorted_products_by_profit[m
+[32m+[m[32mfrom analytics.services import ([m
+[32m+[m[32m    calculate_profit_statistics,[m[41m [m
+[32m+[m[32m    get_all_products_statistics,[m[41m [m
+[32m+[m[32m    get_sorted_net_revenue_per_product,[m[41m [m
+[32m+[m[32m    get_sorted_net_revenue_per_product_top_10,[m
+[32m+[m[32m    get_most_sold_products,[m[41m [m
+[32m+[m[32m    get_most_sold_products_top_10,[m
+[32m+[m[32m    get_sorted_products_by_profit,[m
+[32m+[m[32m    get_sorted_products_by_profit_top_10,[m
+[32m+[m[32m)[m
+ from account.authentication import User[m
+ from core.pagination import CustomPagination[m
+ from van.models import VanAssignment[m
+[36m@@ -151,7 +161,6 @@[m [mclass ProductStatisticsView(APIView):[m
+ [m
+         [m
+ [m
+[31m-[m
+ class MostSoldProducts(APIView):[m
+     # permission_classes = [IsAuthenticated][m
+     pagination_class = CustomPagination[m
+[36m@@ -194,6 +203,36 @@[m [mclass MostSoldProducts(APIView):[m
+             )[m
+         [m
+ [m
+[32m+[m[32mclass MostSoldProductsTop10(APIView):[m
+[32m+[m[32m    @extend_schema([m
+[32m+[m[32m        tags=["Sales Statistics"],[m
+[32m+[m[32m        operation_id="listMostSoldProductsTop10",[m
+[32m+[m[32m        summary="Get top 10 most sold products - optimized endpoint",[m
+[32m+[m[32m        parameters=[[m
+[32m+[m[32m            OpenApiParameter("start_date", type=str, description="YYYY-MM-DD", required=True),[m
+[32m+[m[32m            OpenApiParameter("end_date", type=str, description="YYYY-MM-DD", required=True),[m
+[32m+[m[32m        ],[m
+[32m+[m[32m        responses={200: MostSoldProductsSerializer(many=True)},[m
+[32m+[m[32m    )[m
+[32m+[m[32m    def get(self, request):[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            rows = get_most_sold_products_top_10(request)[m
+[32m+[m[32m            serializer = MostSoldProductsSerializer(rows, many=True)[m
+[32m+[m[32m            return Response(serializer.data)[m
+[32m+[m
+[32m+[m[32m        except ValidationError as e:[m
+[32m+[m[32m            return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)[m
+[32m+[m
+[32m+[m[32m        except Exception as e:[m
+[32m+[m[32m            return Response([m
+[32m+[m[32m                {[m
+[32m+[m[32m                    "code": "internal_server_error",[m
+[32m+[m[32m                    "message": "An unexpected error occurred while fetching statistics.",[m
+[32m+[m[32m                    "details": str(e),[m
+[32m+[m[32m                },[m
+[32m+[m[32m                status=status.HTTP_500_INTERNAL_SERVER_ERROR,[m
+[32m+[m[32m            )[m
+[32m+[m
+ [m
+ class SortedNetRevenue(APIView):[m
+     # permission_classes = [IsAuthenticated][m
+[36m@@ -230,7 +269,30 @@[m [mclass SortedNetRevenue(APIView):[m
+                 },[m
+                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,[m
+             )[m
+[31m-        [m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass SortedNetRevenueTop10(APIView):[m
+[32m+[m[32m    @extend_schema([m
+[32m+[m[32m        tags=["Sales Statistics"],[m
+[32m+[m[32m        operation_id="listProductsNetRevenueTop10",[m
+[32m+[m[32m        summary="Get top 10 products by net revenue - optimized endpoint",[m
+[32m+[m[32m        responses={200: SortedExpectedRevenueSerializer(many=True)},[m
+[32m+[m[32m    )[m
+[32m+[m[32m    def get(self, request):[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            rows = get_sorted_net_revenue_per_product_top_10()[m
+[32m+[m[32m            serializer = SortedExpectedRevenueSerializer(rows, many=True)[m
+[32m+[m[32m            return Response(serializer.data)[m
+[32m+[m
+[32m+[m[32m        except Exception as e:[m
+[32m+[m[32m            return Response([m
+[32m+[m[32m                {[m
+[32m+[m[32m                    "code": "internal_server_error",[m
+[32m+[m[32m                    "message": "An unexpected error occurred while fetching statistics.",[m
+[32m+[m[32m                    "details": str(e),[m
+[32m+[m[32m                },[m
+[32m+[m[32m                status=status.HTTP_500_INTERNAL_SERVER_ERROR,[m
+[32m+[m[32m            )[m
+ [m
+ [m
+ [m
+[36m@@ -268,4 +330,28 @@[m [mclass SortedNetProfit(APIView):[m
+                     "details": str(e),[m
+                 },[m
+                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,[m
+[31m-            )[m
+\ No newline at end of file[m
+[32m+[m[32m            )[m
+[32m+[m
+[32m+[m
+[32m+[m[32mclass SortedNetProfitTop10(APIView):[m
+[32m+[m[32m    @extend_schema([m
+[32m+[m[32m        tags=["Sales Statistics"],[m
+[32m+[m[32m        operation_id="listProductsNetProfitTop10",[m
+[32m+[m[32m        summary="Get top 10 products by profit - optimized endpoint",[m
+[32m+[m[32m        responses={200: SortedNetProfitSerializer(many=True)},[m
+[32m+[m[32m    )[m
+[32m+[m[32m    def get(self, request):[m
+[32m+[m[32m        try:[m
+[32m+[m[32m            rows = get_sorted_products_by_profit_top_10()[m
+[32m+[m[32m            serializer = SortedNetProfitSerializer(rows, many=True)[m
+[32m+[m[32m            return Response(serializer.data)[m
+[32m+[m
+[32m+[m[32m        except Exception as e:[m
+[32m+[m[32m            return Response([m
+[32m+[m[32m                {[m
+[32m+[m[32m                    "code": "internal_server_error",[m
+[32m+[m[32m                    "message": "An unexpected error occurred while fetching statistics.",[m
+[32m+[m[32m                    "details": str(e),[m
+[32m+[m[32m                },[m
+[32m+[m[32m                status=status.HTTP_500_INTERNAL_SERVER_ERROR,[m
+[32m+[m[32m            )[m
