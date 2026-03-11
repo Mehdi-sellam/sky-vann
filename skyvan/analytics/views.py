@@ -1,20 +1,10 @@
-
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
-from analytics.services import (
-    calculate_profit_statistics, 
-    get_all_products_statistics, 
-    get_sorted_net_revenue_per_product, 
-    get_sorted_net_revenue_per_product_top_10,
-    get_most_sold_products, 
-    get_most_sold_products_top_10,
-    get_sorted_products_by_profit,
-    get_sorted_products_by_profit_top_10,
-)
+from analytics.services import calculate_profit_statistics, get_all_products_statistics, get_sorted_net_revenue_per_product, get_most_sold_products, get_sorted_products_by_profit
 from account.authentication import User
 from core.pagination import CustomPagination
 from van.models import VanAssignment
@@ -161,6 +151,7 @@ class ProductStatisticsView(APIView):
 
         
 
+
 class MostSoldProducts(APIView):
     # permission_classes = [IsAuthenticated]
     pagination_class = CustomPagination
@@ -203,36 +194,6 @@ class MostSoldProducts(APIView):
             )
         
 
-class MostSoldProductsTop10(APIView):
-    @extend_schema(
-        tags=["Sales Statistics"],
-        operation_id="listMostSoldProductsTop10",
-        summary="Get top 10 most sold products - optimized endpoint",
-        parameters=[
-            OpenApiParameter("start_date", type=str, description="YYYY-MM-DD", required=True),
-            OpenApiParameter("end_date", type=str, description="YYYY-MM-DD", required=True),
-        ],
-        responses={200: MostSoldProductsSerializer(many=True)},
-    )
-    def get(self, request):
-        try:
-            rows = get_most_sold_products_top_10(request)
-            serializer = MostSoldProductsSerializer(rows, many=True)
-            return Response(serializer.data)
-
-        except ValidationError as e:
-            return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
-
-        except Exception as e:
-            return Response(
-                {
-                    "code": "internal_server_error",
-                    "message": "An unexpected error occurred while fetching statistics.",
-                    "details": str(e),
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
 
 class SortedNetRevenue(APIView):
     # permission_classes = [IsAuthenticated]
@@ -269,30 +230,7 @@ class SortedNetRevenue(APIView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-
-class SortedNetRevenueTop10(APIView):
-    @extend_schema(
-        tags=["Sales Statistics"],
-        operation_id="listProductsNetRevenueTop10",
-        summary="Get top 10 products by net revenue - optimized endpoint",
-        responses={200: SortedExpectedRevenueSerializer(many=True)},
-    )
-    def get(self, request):
-        try:
-            rows = get_sorted_net_revenue_per_product_top_10()
-            serializer = SortedExpectedRevenueSerializer(rows, many=True)
-            return Response(serializer.data)
-
-        except Exception as e:
-            return Response(
-                {
-                    "code": "internal_server_error",
-                    "message": "An unexpected error occurred while fetching statistics.",
-                    "details": str(e),
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
+        
 
 
 
@@ -321,30 +259,6 @@ class SortedNetProfit(APIView):
 
         except ValidationError as e:
             return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
-
-        except Exception as e:
-            return Response(
-                {
-                    "code": "internal_server_error",
-                    "message": "An unexpected error occurred while fetching statistics.",
-                    "details": str(e),
-                },
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-
-class SortedNetProfitTop10(APIView):
-    @extend_schema(
-        tags=["Sales Statistics"],
-        operation_id="listProductsNetProfitTop10",
-        summary="Get top 10 products by profit - optimized endpoint",
-        responses={200: SortedNetProfitSerializer(many=True)},
-    )
-    def get(self, request):
-        try:
-            rows = get_sorted_products_by_profit_top_10()
-            serializer = SortedNetProfitSerializer(rows, many=True)
-            return Response(serializer.data)
 
         except Exception as e:
             return Response(
