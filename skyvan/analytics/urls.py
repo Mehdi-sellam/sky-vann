@@ -15,16 +15,16 @@ urlpatterns = [
     path(
         'statistics/most-sold-products/',
         MostSoldProducts.as_view(),
-        name="product-statistics",
+        name="most-sold-products",
     ),
     path(
         'statistics/products-net-revenue/',
         SortedNetRevenue.as_view(),
-        name="product-statistics",
+        name="products-net-revenue",
     ),
     path(
         'statistics/products-profit/',
         SortedNetProfit.as_view(),
-        name="product-statistics",
+        name="products-profit",
     ),
 ]

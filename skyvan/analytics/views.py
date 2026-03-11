@@ -4,7 +4,13 @@ from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
-from analytics.services import calculate_profit_statistics, get_all_products_statistics, get_sorted_net_revenue_per_product, get_most_sold_products, get_sorted_products_by_profit
+from analytics.services import (
+    calculate_profit_statistics,
+    get_all_products_statistics,
+    get_sorted_net_revenue_per_product,
+    get_most_sold_products,
+    get_sorted_products_by_profit,
+)
 from account.authentication import User
 from core.pagination import CustomPagination
 from van.models import VanAssignment
@@ -20,6 +26,7 @@ from .error_codes import AnalyticsErrorCode
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 
+
 class ProfitStatisticsView(APIView):
     @extend_schema(
         summary="Get Profit Statistics",
@@ -31,7 +38,7 @@ class ProfitStatisticsView(APIView):
                 type=OpenApiTypes.DATE,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Start date (YYYY-MM-DD)",  # Ensuring this appears first
+                description="Start date (YYYY-MM-DD)",
             ),
             OpenApiParameter(
                 name="date_after",
@@ -74,12 +81,10 @@ class ProfitStatisticsView(APIView):
             return Response(error_data, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-
 class ProductStatisticsView(APIView):
     # permission_classes = [IsAuthenticated]
     pagination_class = CustomPagination
 
-    
     @extend_schema(
         tags=['Sales Statistics'],
         operation_id="retrieveUserProductStatistics",
@@ -118,22 +123,18 @@ class ProductStatisticsView(APIView):
             ),
         ],
         responses={200: ProductStatisticsSerializer},
-
     )
-
-    def get(self, request, uuid): 
+    def get(self, request, uuid):
         try:
             queryset = get_all_products_statistics(uuid, request)
-            
+
             paginator = self.pagination_class()
             page = paginator.paginate_queryset(queryset, request)
-            
+
             serializer = ProductStatisticsSerializer(page, many=True)
             return paginator.get_paginated_response(serializer.data)
-        
 
         except ValidationError as e:
-            # Returns the nice dictionary you defined in your helper functions
             return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
 
         except PermissionDenied as e:
@@ -149,39 +150,27 @@ class ProductStatisticsView(APIView):
                 "details": str(e),
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        
-
 
 class MostSoldProducts(APIView):
     # permission_classes = [IsAuthenticated]
-    pagination_class = CustomPagination
 
     @extend_schema(
         tags=["Sales Statistics"],
         operation_id="listMostSoldProducts",
-        summary="Get most sold products sorted by quantity within a dates interval",
-        parameters=[
-            OpenApiParameter("start_date", type=str, description="YYYY-MM-DD", required=False),
-            OpenApiParameter("end_date", type=str, description="YYYY-MM-DD", required=False),
-            OpenApiParameter("page", location=OpenApiParameter.QUERY, type=int, required=False),
-            OpenApiParameter("page_size", location=OpenApiParameter.QUERY, type=int, required=False),
-        ],
+        summary="Get top 10 most sold products sorted by net quantity sold (sales minus returns)",
+        description=(
+            "Returns the top 10 products with the highest net quantity sold "
+            "(gross sales quantity minus returned quantity). "
+            "The result set is capped at 10 via a SQL LIMIT, which is more "
+            "efficient than fetching all rows and slicing in Python."
+        ),
         responses={200: MostSoldProductsSerializer(many=True)},
     )
     def get(self, request):
         try:
-            rows = get_most_sold_products(request)
-
-            paginator = self.pagination_class()
-            page = paginator.paginate_queryset(rows, request)
-            serializer = MostSoldProductsSerializer(page, many=True)
-            return paginator.get_paginated_response(serializer.data)
-
-        except ValidationError as e:
-            return Response(
-                e.detail,
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+            rows = get_most_sold_products()
+            serializer = MostSoldProductsSerializer(rows, many=True)
+            return Response(serializer.data)
 
         except Exception as e:
             return Response(
@@ -192,34 +181,28 @@ class MostSoldProducts(APIView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-        
 
 
 class SortedNetRevenue(APIView):
     # permission_classes = [IsAuthenticated]
-    pagination_class = CustomPagination
 
     @extend_schema(
         tags=["Sales Statistics"],
         operation_id="listProductsNetRevenue",
-        summary="Get sorted statistics per product sold from a van by its revenue, get the quantity sum and calculate its the avg_unit_price",
-        parameters=[
-            OpenApiParameter("page", location=OpenApiParameter.QUERY, type=int, required=False),
-            OpenApiParameter("page_size", location=OpenApiParameter.QUERY, type=int, required=False),
-        ],
+        summary="Get top 10 products by net revenue with average unit price",
+        description=(
+            "Returns the top 10 products ranked by net revenue (total sale price). "
+            "Includes quantity sold and weighted average unit price. "
+            "The result set is capped at 10 via a SQL LIMIT, which is more "
+            "efficient than fetching all rows and slicing in Python."
+        ),
         responses={200: SortedExpectedRevenueSerializer(many=True)},
     )
     def get(self, request):
         try:
             rows = get_sorted_net_revenue_per_product()
-
-            paginator = self.pagination_class()
-            page = paginator.paginate_queryset(rows, request)
-            serializer = SortedExpectedRevenueSerializer(page, many=True)
-            return paginator.get_paginated_response(serializer.data)
-
-        except ValidationError as e:
-            return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
+            serializer = SortedExpectedRevenueSerializer(rows, many=True)
+            return Response(serializer.data)
 
         except Exception as e:
             return Response(
@@ -230,35 +213,30 @@ class SortedNetRevenue(APIView):
                 },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-        
-
 
 
 class SortedNetProfit(APIView):
     # permission_classes = [IsAuthenticated]
-    pagination_class = CustomPagination
 
     @extend_schema(
         tags=["Sales Statistics"],
         operation_id="listProductsNetProfit",
-        summary="Get sorted statistics per product sold from a van by its revenue, get the quantity sum and calculate its the avg_unit_price",
-        parameters=[
-            OpenApiParameter("page", location=OpenApiParameter.QUERY, type=int, required=False),
-            OpenApiParameter("page_size", location=OpenApiParameter.QUERY, type=int, required=False),
-        ],
+        summary="Get top 10 products by profit (revenue minus COGS) accounting for returns",
+        description=(
+            "Returns the top 10 products ranked by profit. "
+            "Profit is calculated as net revenue minus the cost of goods sold (COGS), "
+            "where COGS uses the snapshot average_cost recorded on each sale/return line. "
+            "Returns are subtracted from both revenue and COGS. "
+            "The result set is capped at 10 via a SQL LIMIT, which is more "
+            "efficient than fetching all rows and slicing in Python."
+        ),
         responses={200: SortedNetProfitSerializer(many=True)},
     )
     def get(self, request):
         try:
             rows = get_sorted_products_by_profit()
-
-            paginator = self.pagination_class()
-            page = paginator.paginate_queryset(rows, request)
-            serializer = SortedNetProfitSerializer(page, many=True)
-            return paginator.get_paginated_response(serializer.data)
-
-        except ValidationError as e:
-            return Response(e.detail, status=status.HTTP_400_BAD_REQUEST)
+            serializer = SortedNetProfitSerializer(rows, many=True)
+            return Response(serializer.data)
 
         except Exception as e:
             return Response(

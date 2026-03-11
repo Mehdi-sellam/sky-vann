@@ -255,20 +255,6 @@ def get_all_products_statistics(user_uuid, request):
         sale_order__van__uuid__in=van_uuids
     )
 
-#    return_sale_qs = ReturnSaleLine.objects.filter(
-#        product=OuterRef("pk"),
-#        deleted=False,
-#        return_sale_order__deleted=False,
-#        return_sale_order__is_received=True,
-#    )
-#
-#    related_sales_from_vans = SaleOrder.objects.filter(
-#        customer=OuterRef("return_sale_order__customer"),
-#        van__uuid__in=van_uuids,
-#        deleted=False,
-#        is_received=True
-#    )
-
     return (
         Product.objects.filter(deleted=False)
         .select_related("category")
@@ -387,11 +373,11 @@ def get_all_products_statistics(user_uuid, request):
     )
 
 
-def get_most_sold_products(request):
-    ''' 
-    get the quantity sold - returns sum of products sold from 
-    a van and sort them by quantity sold
-
+def get_most_sold_products():
+    '''
+    get the quantity sold - returns sum of products sold from
+    a van and sort them by quantity sold descending.
+    Returns the top 10 only via a SQL LIMIT for optimal query performance.
     '''
     decimal_zero = Value(0, output_field=DecimalField())
 
@@ -410,44 +396,7 @@ def get_most_sold_products(request):
     ).values("product").annotate(total=Sum("quantity")).values("total")
 
     return (
-        Product.objects.filter(deleted=False,)
-        .select_related("category")
-        .prefetch_related("barcodes")
-        .annotate(
-            gross_sold=Coalesce(Subquery(sales_qs), decimal_zero),
-            total_returned=Coalesce(Subquery(returns_qs), decimal_zero)
-        )
-        .annotate(
-            quantity_sold=ExpressionWrapper(
-                F("gross_sold") - F("total_returned"),
-                output_field=DecimalField()
-            )
-        )
-        .filter(quantity_sold__gt=0)
-        .order_by("-quantity_sold", "name")
-    )
-
-
-def get_most_sold_products_top_10(request):
-    """Get top 10 most sold products - optimized with SQL LIMIT"""
-    decimal_zero = Value(0, output_field=DecimalField())
-
-    sales_qs = SaleLine.objects.filter(
-        product=OuterRef("pk"),
-        deleted=False,
-        sale_order__deleted=False,
-        sale_order__is_received=True
-    ).values("product").annotate(total=Sum("quantity")).values("total")
-
-    returns_qs = ReturnSaleLine.objects.filter(
-        product=OuterRef("pk"),
-        deleted=False,
-        return_sale_order__deleted=False,
-        return_sale_order__is_received=True
-    ).values("product").annotate(total=Sum("quantity")).values("total")
-
-    return (
-        Product.objects.filter(deleted=False,)
+        Product.objects.filter(deleted=False)
         .select_related("category")
         .prefetch_related("barcodes")
         .annotate(
@@ -465,14 +414,13 @@ def get_most_sold_products_top_10(request):
     )
 
 
-
 def get_sorted_net_revenue_per_product():
-    ''' 
-    get the quantity sum and the total_price sum 
-    (net revenue) of a sold product from a van and 
-    calculate its the avg_unit_price and sort them 
-    by product net_revenue and name
-
+    '''
+    get the quantity sum and the total_price sum
+    (net revenue) of a sold product from a van and
+    calculate its the avg_unit_price and sort them
+    by product net_revenue and name descending.
+    Returns the top 10 only via a SQL LIMIT for optimal query performance.
     '''
     return (
         Product.objects.filter(
@@ -488,38 +436,8 @@ def get_sorted_net_revenue_per_product():
         )
         .filter(quantity_sold__gt=0)
         .annotate(
-            # weighted average NET unit price
-            # NullIf is a safety net: if quantity_sold is 0, it returns NULL instead of crashing
             avg_unit_price=ExpressionWrapper(
-                F("net_revenue") / NullIf(F("quantity_sold"), Value(0)), 
-                output_field=DecimalField(
-                    max_digits=settings.DEFAULT_MAX_DIGITS,
-                    decimal_places=settings.DEFAULT_DECIMAL_PLACES,
-                )
-            )
-        )
-        .order_by("-net_revenue", "name")
-    )
-
-
-def get_sorted_net_revenue_per_product_top_10():
-    """Get top 10 products by net revenue - optimized with SQL LIMIT"""
-    return (
-        Product.objects.filter(
-            deleted=False,
-            sale_lines__deleted=False,
-            sale_lines__sale_order__deleted=False
-        )
-        .select_related("category")
-        .prefetch_related("barcodes")
-        .annotate(
-            quantity_sold=Sum("sale_lines__quantity"),
-            net_revenue=Sum("sale_lines__total_price"),
-        )
-        .filter(quantity_sold__gt=0)
-        .annotate(
-            avg_unit_price=ExpressionWrapper(
-                F("net_revenue") / NullIf(F("quantity_sold"), Value(0)), 
+                F("net_revenue") / NullIf(F("quantity_sold"), Value(0)),
                 output_field=DecimalField(
                     max_digits=settings.DEFAULT_MAX_DIGITS,
                     decimal_places=settings.DEFAULT_DECIMAL_PLACES,
@@ -530,26 +448,25 @@ def get_sorted_net_revenue_per_product_top_10():
     )
 
 
-
-
 def get_sorted_products_by_profit():
-    """ 
+    """
     Calculates profit by product using the snapshot 'average_cost' on SaleLines and returns.
     This is the standard accounting method for Cost of Goods Sold (COGS).
+    Returns the top 10 only via a SQL LIMIT for optimal query performance.
     """
     decimal_out = DecimalField(
-        max_digits=settings.DEFAULT_MAX_DIGITS, 
+        max_digits=settings.DEFAULT_MAX_DIGITS,
         decimal_places=settings.DEFAULT_DECIMAL_PLACES
     )
 
     decimal_zero = Value(0, output_field=decimal_out)
 
     sales_base = SaleLine.objects.filter(
-        product=OuterRef("pk"), deleted=False, 
+        product=OuterRef("pk"), deleted=False,
         sale_order__deleted=False, sale_order__is_received=True
     )
     returns_base = ReturnSaleLine.objects.filter(
-        product=OuterRef("pk"), deleted=False, 
+        product=OuterRef("pk"), deleted=False,
         return_sale_order__deleted=False, return_sale_order__is_received=True
     )
 
@@ -562,12 +479,10 @@ def get_sorted_products_by_profit():
         .select_related("category")
         .prefetch_related("barcodes")
         .annotate(
-            # Gross totals
             gross_qty=Coalesce(Subquery(sales_base.values("product").annotate(t=Sum("quantity")).values("t")), decimal_zero),
             gross_rev=Coalesce(Subquery(sales_base.values("product").annotate(t=Sum("total_price")).values("t")), decimal_zero),
             gross_cogs=Coalesce(Subquery(sales_base.values("product").annotate(t=Sum(F("quantity") * F("average_cost"))).values("t")), decimal_zero),
 
-            # returns
             ret_qty=Coalesce(Subquery(returns_base.values("product").annotate(t=Sum("quantity")).values("t")), decimal_zero),
             ret_rev=Coalesce(Subquery(returns_base.values("product").annotate(t=Sum("total_price")).values("t")), decimal_zero),
             ret_cogs=Coalesce(Subquery(returns_base.values("product").annotate(t=Sum(F("quantity") * F("average_cost"))).values("t")), decimal_zero),
@@ -575,76 +490,14 @@ def get_sorted_products_by_profit():
         .annotate(
             quantity_sold=ExpressionWrapper(F("gross_qty") - F("ret_qty"), output_field=decimal_out),
             net_revenue=ExpressionWrapper(F("gross_rev") - F("ret_rev"), output_field=decimal_out),
-            # Cost of Goods Sold (COGS)
             total_cost_value=ExpressionWrapper(F("gross_cogs") - F("ret_cogs"), output_field=decimal_out),
         )
         .filter(Q(gross_qty__gt=0) | Q(ret_qty__gt=0))
         .annotate(
             profit=ExpressionWrapper(
-                F("net_revenue") - F("total_cost_value"), 
+                F("net_revenue") - F("total_cost_value"),
                 output_field=decimal_out
             ),
-            # (Average unit cost of items sold)
-            avg_unit_cost_price=ExpressionWrapper(
-                F("total_cost_value") / NullIf(F("quantity_sold"), Value(0)),
-                output_field=decimal_out
-            )
-        )
-        .filter(quantity_sold__gt=0)
-        .order_by("-profit", "name")
-    )
-
-
-def get_sorted_products_by_profit_top_10():
-    """Get top 10 products by profit - optimized with SQL LIMIT"""
-    decimal_out = DecimalField(
-        max_digits=settings.DEFAULT_MAX_DIGITS, 
-        decimal_places=settings.DEFAULT_DECIMAL_PLACES
-    )
-
-    decimal_zero = Value(0, output_field=decimal_out)
-
-    sales_base = SaleLine.objects.filter(
-        product=OuterRef("pk"), deleted=False, 
-        sale_order__deleted=False, sale_order__is_received=True
-    )
-    returns_base = ReturnSaleLine.objects.filter(
-        product=OuterRef("pk"), deleted=False, 
-        return_sale_order__deleted=False, return_sale_order__is_received=True
-    )
-
-    return (
-        Product.objects.filter(
-            deleted=False,
-            sale_lines__deleted=False,
-            sale_lines__sale_order__deleted=False
-        )
-        .select_related("category")
-        .prefetch_related("barcodes")
-        .annotate(
-            # Gross totals
-            gross_qty=Coalesce(Subquery(sales_base.values("product").annotate(t=Sum("quantity")).values("t")), decimal_zero),
-            gross_rev=Coalesce(Subquery(sales_base.values("product").annotate(t=Sum("total_price")).values("t")), decimal_zero),
-            gross_cogs=Coalesce(Subquery(sales_base.values("product").annotate(t=Sum(F("quantity") * F("average_cost"))).values("t")), decimal_zero),
-
-            # returns
-            ret_qty=Coalesce(Subquery(returns_base.values("product").annotate(t=Sum("quantity")).values("t")), decimal_zero),
-            ret_rev=Coalesce(Subquery(returns_base.values("product").annotate(t=Sum("total_price")).values("t")), decimal_zero),
-            ret_cogs=Coalesce(Subquery(returns_base.values("product").annotate(t=Sum(F("quantity") * F("average_cost"))).values("t")), decimal_zero),
-        )
-        .annotate(
-            quantity_sold=ExpressionWrapper(F("gross_qty") - F("ret_qty"), output_field=decimal_out),
-            net_revenue=ExpressionWrapper(F("gross_rev") - F("ret_rev"), output_field=decimal_out),
-            # Cost of Goods Sold (COGS)
-            total_cost_value=ExpressionWrapper(F("gross_cogs") - F("ret_cogs"), output_field=decimal_out),
-        )
-        .filter(Q(gross_qty__gt=0) | Q(ret_qty__gt=0))
-        .annotate(
-            profit=ExpressionWrapper(
-                F("net_revenue") - F("total_cost_value"), 
-                output_field=decimal_out
-            ),
-            # (Average unit cost of items sold)
             avg_unit_cost_price=ExpressionWrapper(
                 F("total_cost_value") / NullIf(F("quantity_sold"), Value(0)),
                 output_field=decimal_out
