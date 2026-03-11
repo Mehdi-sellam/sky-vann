@@ -15,31 +15,16 @@ urlpatterns = [
     path(
         'statistics/most-sold-products/',
         MostSoldProducts.as_view(),
-        name="most-sold-products",
-    ),
-    path(
-        'statistics/most-sold-products/top-10/',
-        MostSoldProductsTop10.as_view(),
-        name="most-sold-products-top-10",
+        name="product-statistics",
     ),
     path(
         'statistics/products-net-revenue/',
         SortedNetRevenue.as_view(),
-        name="products-net-revenue",
-    ),
-    path(
-        'statistics/products-net-revenue/top-10/',
-        SortedNetRevenueTop10.as_view(),
-        name="products-net-revenue-top-10",
+        name="product-statistics",
     ),
     path(
         'statistics/products-profit/',
         SortedNetProfit.as_view(),
-        name="products-profit",
-    ),
-    path(
-        'statistics/products-profit/top-10/',
-        SortedNetProfitTop10.as_view(),
-        name="products-profit-top-10",
+        name="product-statistics",
     ),
 ]
